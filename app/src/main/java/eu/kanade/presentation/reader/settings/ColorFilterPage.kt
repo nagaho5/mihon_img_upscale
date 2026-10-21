@@ -32,6 +32,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsViewModel
 import eu.kanade.tachiyomi.util.mediatek.MediaTekNpu
 import eu.kanade.tachiyomi.util.npu.NpuModelStatus
 import eu.kanade.tachiyomi.util.qnn.QnnModelContexts
+import eu.kanade.tachiyomi.util.qnn.QualcommHtp
 import eu.kanade.tachiyomi.util.waifu2x.Waifu2x
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,12 +164,15 @@ internal fun ColumnScope.ColorFilterPage(viewModel: ReaderSettingsViewModel) {
         val realCuganNoiseLevel by viewModel.preferences.realCuganNoiseLevel().collectAsState()
         val realCuganScale by viewModel.preferences.realCuganScale().collectAsState()
         val processingBackend by viewModel.preferences.realCuganProcessingBackend().collectAsState()
-        val npuDeviceAvailable = remember { Waifu2x.isQualcommNpuAvailable() }
+        val context = LocalContext.current.applicationContext
+        // HTP architecture probing needs the app native-library directory on some devices.
+        val npuDeviceAvailable = remember(context) {
+            QualcommHtp.architecture(context) != null && Waifu2x.isQnnRuntimeAvailable()
+        }
         val mediaTekDeviceAvailable = remember { MediaTekNpu.isDeviceSupported() }
         val useQualcommNpu = processingBackend == Waifu2x.PROCESSING_BACKEND_QUALCOMM_NPU
         val useMediaTekNpu = processingBackend == Waifu2x.PROCESSING_BACKEND_MEDIATEK_NPU
         val useNpu = useQualcommNpu || useMediaTekNpu
-        val context = LocalContext.current.applicationContext
         val qnnModelName = if (useNpu) {
             Waifu2x.qnnModelName(realCuganModel, realCuganScale, realCuganNoiseLevel, realEsrganStyle)
         } else {
