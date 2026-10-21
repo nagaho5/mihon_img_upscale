@@ -257,6 +257,7 @@ data class BrowseSourceScreen(
                                     Text(text = stringResource(MR.strings.popular))
                                 },
                             )
+                            // LocalSource is not a CatalogueSource, so keep this cast safe.
                             if ((viewModel.source as? CatalogueSource)?.supportsLatest == true) {
                                 FilterChip(
                                     selected = state.listing == Listing.Latest,
