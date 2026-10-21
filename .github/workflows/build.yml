@@ -12,6 +12,7 @@ on:
   push:
     branches:
       - main
+      - fix/local-source-crash-test
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
