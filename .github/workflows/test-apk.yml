@@ -1,4 +1,4 @@
-name: Test APK
+name: Test NPU APK
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - fix/local-source-crash-test
 
 concurrency:
-  group: test-apk-${{ github.ref }}
+  group: test-npu-apk-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ARM64 parallel test APK
+    name: Build ARM64 parallel NPU test APK
     runs-on: ubuntu-26.04
 
     steps:
@@ -30,12 +30,95 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6
 
-      - name: Build app
+      - name: Build parallel nightly base
         run: ./gradlew assembleNightly -Pdist=ci
 
-      - name: Upload APK
+      - name: Download official v1.3.15 ARM64 APK
+        run: |
+          set -euxo pipefail
+          mkdir -p npu-repack
+          curl -fL --retry 3 --retry-delay 3 \
+            -o npu-repack/official.apk \
+            https://github.com/HaoweiLi97/mihon_img_upscale/releases/download/v1.3.15/app-arm64-v8a-release.apk
+          ls -lh npu-repack/official.apk
+
+      - name: Inject official Qualcomm NPU assets
+        run: |
+          set -euxo pipefail
+
+          WORK="$GITHUB_WORKSPACE/npu-repack"
+          OFFICIAL="$WORK/official"
+          MERGED="$WORK/merged-unsigned.apk"
+          ALIGNED="$WORK/merged-aligned.apk"
+          FINAL="$GITHUB_WORKSPACE/dist/mihon-local-source-npu-test-arm64.apk"
+
+          rm -rf "$OFFICIAL" "$GITHUB_WORKSPACE/dist"
+          mkdir -p "$OFFICIAL" "$GITHUB_WORKSPACE/dist"
+
+          unzip -q "$WORK/official.apk" -d "$OFFICIAL"
+
+          DLC_COUNT=$(find "$OFFICIAL/assets/qnn-models" -maxdepth 1 -type f -name '*.dlc' | wc -l)
+          echo "Official Qualcomm DLC count: $DLC_COUNT"
+          test "$DLC_COUNT" -eq 15
+          test -f "$OFFICIAL/assets/qnn-models/manifest.json"
+          test -f "$OFFICIAL/lib/arm64-v8a/libwaifu2x-jni.so"
+
+          QNN_LIB_COUNT=$(find "$OFFICIAL/lib/arm64-v8a" -maxdepth 1 -type f -name 'libQnn*.so' | wc -l)
+          echo "Official QNN library count: $QNN_LIB_COUNT"
+          test "$QNN_LIB_COUNT" -gt 0
+
+          BASE_APK=$(find app/build/outputs/apk/nightly -maxdepth 1 -type f -name '*arm64-v8a*.apk' | head -n 1)
+          test -n "$BASE_APK"
+          echo "Nightly base: $BASE_APK"
+          cp "$BASE_APK" "$MERGED"
+
+          # Replace the ARM64 native payload with the exact v1.3.15 official set.
+          # The Kotlin/Java source stays on our Nightly build, including the one-line LocalSource fix.
+          zip -q -d "$MERGED" 'lib/arm64-v8a/*' 'assets/qnn-models/*' \
+            'META-INF/*.RSA' 'META-INF/*.SF' 'META-INF/*.MF' || true
+          (
+            cd "$OFFICIAL"
+            zip -q -r "$MERGED" assets/qnn-models lib/arm64-v8a
+          )
+
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          test -x "$BUILD_TOOLS_DIR/zipalign"
+          test -x "$BUILD_TOOLS_DIR/apksigner"
+          test -x "$BUILD_TOOLS_DIR/aapt"
+
+          "$BUILD_TOOLS_DIR/zipalign" -f -p 4 "$MERGED" "$ALIGNED"
+
+          DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
+          test -f "$DEBUG_KEYSTORE"
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$DEBUG_KEYSTORE" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "$FINAL" \
+            "$ALIGNED"
+
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$FINAL"
+
+          PACKAGE_LINE=$("$BUILD_TOOLS_DIR/aapt" dump badging "$FINAL" | head -n 1)
+          echo "$PACKAGE_LINE"
+          echo "$PACKAGE_LINE" | grep -q "name='app.mihon.debug'"
+
+          FINAL_DLC_COUNT=$(unzip -Z1 "$FINAL" | grep -E '^assets/qnn-models/[^/]+\.dlc$' | wc -l)
+          echo "Final Qualcomm DLC count: $FINAL_DLC_COUNT"
+          test "$FINAL_DLC_COUNT" -eq 15
+
+          unzip -Z1 "$FINAL" | grep -q '^lib/arm64-v8a/libwaifu2x-jni\.so$'
+          FINAL_QNN_LIB_COUNT=$(unzip -Z1 "$FINAL" | grep -E '^lib/arm64-v8a/libQnn[^/]*\.so$' | wc -l)
+          echo "Final QNN library count: $FINAL_QNN_LIB_COUNT"
+          test "$FINAL_QNN_LIB_COUNT" -gt 0
+
+          ls -lh "$FINAL"
+          sha256sum "$FINAL"
+
+      - name: Upload NPU test APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: mihon-local-source-test-nightly-${{ github.sha }}
-          path: app/build/outputs/apk/nightly/*arm64-v8a*.apk
+          name: mihon-local-source-npu-test-${{ github.sha }}
+          path: dist/mihon-local-source-npu-test-arm64.apk
           retention-days: 3
