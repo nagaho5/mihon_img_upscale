@@ -78,7 +78,10 @@ jobs:
             'META-INF/*.RSA' 'META-INF/*.SF' 'META-INF/*.MF' || true
           (
             cd "$OFFICIAL"
-            zip -q -r "$MERGED" assets/qnn-models lib/arm64-v8a
+            # DLC assets may be compressed, but keep native libraries stored so they
+            # remain directly loadable even when the manifest disables extraction.
+            zip -q -r "$MERGED" assets/qnn-models
+            zip -q -0 -r "$MERGED" lib/arm64-v8a
           )
 
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
@@ -108,8 +111,34 @@ jobs:
           echo "Final Qualcomm DLC count: $FINAL_DLC_COUNT"
           test "$FINAL_DLC_COUNT" -eq 15
 
-          unzip -Z1 "$FINAL" | grep -q '^lib/arm64-v8a/libwaifu2x-jni\.so$'
-          FINAL_QNN_LIB_COUNT=$(unzip -Z1 "$FINAL" | grep -E '^lib/arm64-v8a/libQnn[^/]*\.so$' | wc -l)
+          unzip -Z1 "$FINAL" | grep -q '^lib/arm64-v8a/libwaifu2x-jni\.so          echo "Final QNN library count: $FINAL_QNN_LIB_COUNT"
+          test "$FINAL_QNN_LIB_COUNT" -gt 0
+
+          ls -lh "$FINAL"
+          sha256sum "$FINAL"
+
+      - name: Upload NPU test APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mihon-local-source-npu-test-${{ github.sha }}
+          path: dist/mihon-local-source-npu-test-arm64.apk
+          retention-days: 3
+
+          unzip -lv "$FINAL" | grep 'lib/arm64-v8a/libwaifu2x-jni.so'
+          unzip -lv "$FINAL" | awk '$NF == "lib/arm64-v8a/libwaifu2x-jni.so" { if ($2 != "Stored") exit 1; found=1 } END { if (!found) exit 1 }'
+          FINAL_QNN_LIB_COUNT=$(unzip -Z1 "$FINAL" | grep -E '^lib/arm64-v8a/libQnn[^/]*\.so          echo "Final QNN library count: $FINAL_QNN_LIB_COUNT"
+          test "$FINAL_QNN_LIB_COUNT" -gt 0
+
+          ls -lh "$FINAL"
+          sha256sum "$FINAL"
+
+      - name: Upload NPU test APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mihon-local-source-npu-test-${{ github.sha }}
+          path: dist/mihon-local-source-npu-test-arm64.apk
+          retention-days: 3
+ | wc -l)
           echo "Final QNN library count: $FINAL_QNN_LIB_COUNT"
           test "$FINAL_QNN_LIB_COUNT" -gt 0
 
