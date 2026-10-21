@@ -257,7 +257,7 @@ data class BrowseSourceScreen(
                                     Text(text = stringResource(MR.strings.popular))
                                 },
                             )
-                            if ((viewModel.source as CatalogueSource).supportsLatest) {
+                            if ((viewModel.source as? CatalogueSource)?.supportsLatest == true) {
                                 FilterChip(
                                     selected = state.listing == Listing.Latest,
                                     onClick = {
